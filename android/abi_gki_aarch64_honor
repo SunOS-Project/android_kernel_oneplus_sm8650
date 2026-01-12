@@ -47,6 +47,8 @@
  __tracepoint_android_vh_inode_lru_isolate
  __tracepoint_android_vh_invalidate_mapping_pagevec
  __traceiter_android_vh_invalidate_mapping_pagevec
+ __traceiter_android_vh_mark_folio_accessed
+ __tracepoint_android_vh_mark_folio_accessed
  binder_alloc_copy_from_buffer
  kfree
  __kmalloc
@@ -75,6 +77,8 @@
  udp6_lib_lookup
  next_arg
  pm_wakeup_irq
+ __traceiter_android_vh_folio_add_lru
+ __tracepoint_android_vh_folio_add_lru
  __tracepoint_android_vh_dc_send_copy
  __traceiter_android_vh_dc_send_copy
  __tracepoint_android_vh_dc_receive

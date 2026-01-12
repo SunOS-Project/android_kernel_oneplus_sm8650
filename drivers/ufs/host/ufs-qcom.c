@@ -2750,6 +2750,9 @@ static void ufs_qcom_set_caps(struct ufs_hba *hba)
 			hba->caps |= UFSHCD_CAP_WB_EN;
 	}
 
+	if (!host->disable_wb_support)
+		hba->caps |= UFSHCD_CAP_WB_EN;
+
 	if (!(hba->caps & UFSHCD_CAP_CLK_SCALING) && of_property_read_bool(np, "irq_toggle_affinity_by_ioloading")) {
 		host->irq_toggle_affinity_by_ioloading = true;
 	} else

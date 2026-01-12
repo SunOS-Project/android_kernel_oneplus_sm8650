@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
  * Copyright (c) 2017-2021, The Linux Foundation. All rights reserved.
- * Copyright (c) 2021-2025 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
  */
 
 #include <linux/clk.h>
@@ -1156,7 +1156,8 @@ static int setup_gsi_xfer(struct spi_transfer *xfer,
 	}
 
 	cs |= spi_slv->chip_select;
-	if (!xfer->cs_change) {
+
+	if (!spi->cs_gpiods && !xfer->cs_change) {
 		if (!list_is_last(&xfer->transfer_list,
 					&spi->cur_msg->transfers))
 			go_flags |= FRAGMENTATION;
@@ -1860,7 +1861,7 @@ static int setup_fifo_xfer(struct spi_transfer *xfer,
 		trans_len = (xfer->len / bytes_per_word) & TRANS_LEN_MSK;
 	}
 
-	if (!xfer->cs_change) {
+	if (!spi->cs_gpiods && !xfer->cs_change) {
 		if (!list_is_last(&xfer->transfer_list,
 					&spi->cur_msg->transfers))
 			m_param |= FRAGMENTATION;
@@ -2306,6 +2307,36 @@ static void geni_spi_handle_rx(struct spi_geni_master *mas)
 	mas->rx_rem_bytes -= rx_bytes;
 }
 
+/**
+ * spi_geni_is_dma_xfer_done() - Check if DMA transfer is complete
+ * @mas: SPI master structure
+ * @dma_tx_status: TX DMA status
+ * @dma_rx_status: RX DMA status
+ *
+ * Determines if the current DMA transfer is complete based on the transfer
+ * type (full-duplex, TX-only, or RX-only) and corresponding DMA done flags.
+ *
+ * Return: true if transfer is complete, false otherwise
+ */
+static bool spi_geni_is_dma_xfer_done(struct spi_geni_master *mas,
+				      u32 dma_tx_status, u32 dma_rx_status)
+{
+	if (!mas->cur_xfer)
+		return false;
+
+	if (mas->cur_xfer->tx_buf && mas->cur_xfer->rx_buf)
+		return (dma_tx_status & TX_DMA_DONE) && (dma_rx_status & RX_DMA_DONE) &&
+			!mas->tx_rem_bytes && !mas->rx_rem_bytes;
+
+	if (mas->cur_xfer->tx_buf)
+		return (dma_tx_status & TX_DMA_DONE) && !mas->tx_rem_bytes;
+
+	if (mas->cur_xfer->rx_buf)
+		return (dma_rx_status & RX_DMA_DONE) && !mas->rx_rem_bytes;
+
+	return false;
+}
+
 static irqreturn_t geni_spi_irq(int irq, void *data)
 {
 	struct spi_geni_master *mas = data;
@@ -2376,10 +2407,15 @@ static irqreturn_t geni_spi_irq(int irq, void *data)
 			mas->tx_rem_bytes = 0;
 		if (dma_rx_status & RX_DMA_DONE)
 			mas->rx_rem_bytes = 0;
-		if (!mas->tx_rem_bytes && !mas->rx_rem_bytes)
+		if (spi_geni_is_dma_xfer_done(mas, dma_tx_status, dma_rx_status))
 			mas->cmd_done = true;
 		if ((m_irq & M_CMD_CANCEL_EN) || (m_irq & M_CMD_ABORT_EN))
 			mas->cmd_done = true;
+
+		if (!mas->cmd_done)
+			SPI_LOG_DBG(mas->ipc, false, mas->dev,
+				    "Spurious IRQ!! DMA_TX:0x%x, DMA_RX:0x%x\n",
+				    dma_tx_status, dma_rx_status);
 	}
 exit_geni_spi_irq:
 	if (!mas->spi_ssr.is_ssr_down)
@@ -2663,6 +2699,7 @@ static int spi_geni_probe(struct platform_device *pdev)
 	spi->unprepare_transfer_hardware
 			= spi_geni_unprepare_transfer_hardware;
 	spi->auto_runtime_pm = false;
+	spi->use_gpio_descriptors = true;
 
 	init_completion(&geni_mas->xfer_done);
 	init_completion(&geni_mas->tx_cb);
